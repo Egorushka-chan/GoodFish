@@ -3,10 +3,10 @@ using GoodFish.BLL.Services;
 using GoodFish.DAL.Models;
 using Microsoft.AspNetCore.Mvc;
 
-namespace GoodFish.API.Controllers
+namespace GoodFish.API.Controllers.Entity
 {
     [Route("api/[controller]")]
-    public class CustomerController(IBaseCRUDEntityService<Customer> service) : CRUDGenericController<Customer>(service)
+    public class OrderItemController(IBaseCRUDEntityService<OrderItem> service) : CRUDGenericController<OrderItem>(service)
     {
     }
 }

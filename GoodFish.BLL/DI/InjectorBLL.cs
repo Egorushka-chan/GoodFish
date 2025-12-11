@@ -17,6 +17,8 @@ namespace GoodFish.BLL.DI
             services.AddScoped<IBaseCRUDEntityService<Order>, BaseCRUDEntityService<Order>>();
             services.AddScoped<IBaseCRUDEntityService<OrderItem>, BaseCRUDEntityService<OrderItem>>();
             services.AddScoped<IBaseCRUDEntityService<PaymentMethod>, BaseCRUDEntityService<PaymentMethod>>();
+
+            services.AddScoped<IETLService, ETLService>();
             return services;
         }
     }

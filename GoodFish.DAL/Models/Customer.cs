@@ -20,10 +20,13 @@ namespace GoodFish.DAL.Models
         [Column("phone")]
         [MaxLength(20)]
         public required string Phone { get; set; }
+        [Column("email")]
         [MaxLength(150)]
         public string? Email { get; set; }
         [Column("created_at")]
         public DateTime CreatedAt { get; set; }
+        [Column("gender")]
+        public bool Gender { get; set; }
 
         [JsonIgnore]
         public ICollection<CustomerAddress> Addresses { get; set; } = [];

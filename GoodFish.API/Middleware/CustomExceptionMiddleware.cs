@@ -50,7 +50,7 @@ namespace GoodFish.API.Middleware
                 if (response.Status == (int)HttpStatusCode.InternalServerError && _environment.IsDevelopment())
                 {
                     // Если требуется выводить ошибку в ответе
-                    await context.Response.WriteAsync(JsonSerializer.Serialize(exception));
+                    await context.Response.WriteAsync(JsonSerializer.Serialize(response));
                     return;
                 }
 
