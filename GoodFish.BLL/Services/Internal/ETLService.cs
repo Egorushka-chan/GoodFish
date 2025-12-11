@@ -18,91 +18,17 @@ namespace GoodFish.BLL.Services.Internal
             List<ETLCustomerDTO> customersRawData = await ExtractCustomersAsync(file);
 
             // Начинаем валидацию данных
-            int totalRecords = customersRawData.Count;
-            int totalPassed = 0;
-            List<string> errors = [];
-            List<ETLCustomerDTO> validCustomersRaw = [];
-            foreach (var customerRaw in customersRawData)
-            {
-                // Пропускаем некорректные записи
-                if (string.IsNullOrWhiteSpace(customerRaw.ID))
-                {
-                    logger.LogInformation("Пропуск некорректной записи заказчика с пустым ID");
-                    errors.Add($"Пропуск некорректной записи заказчика с пустым ID");
-                    continue;
-                }
-
-                if(long.TryParse(customerRaw.ID, out _) is false)
-                {
-                    logger.LogInformation("Пропуск записи заказчика с некорректным ID: {CustomerID}", customerRaw.ID);
-                    errors.Add($"Пропуск записи заказчика с некорректным ID: {customerRaw.ID}");
-                    continue;
-                }
-
-                // Проверяем, есть ли уже такой заказчик в БД
-                var existingCustomer = await customerRepository.GetByIdAsync(long.Parse(customerRaw.ID), CancellationToken.None);
-                if (existingCustomer != null)
-                {
-                    logger.LogInformation("Заказчик с ID: {CustomerID} уже существует. Пропуск.", customerRaw.ID);
-                    errors.Add($"Заказчик с ID: {customerRaw.ID} уже существует. Пропуск.");
-                    continue;
-                }
-
-                if (string.IsNullOrEmpty(customerRaw.FullName) || string.IsNullOrEmpty(customerRaw.Email) || string.IsNullOrEmpty(customerRaw.Gender))
-                {
-                    logger.LogInformation("Пропуск записи заказчика с ID: {CustomerID} из-за отсутствия обязательных полей.", customerRaw.ID);
-                    errors.Add($"Пропуск записи заказчика с ID: {customerRaw.ID} из-за отсутствия обязательных полей.");
-                    continue;
-                }
-
-                if (customerRaw.Email == null || !customerRaw.Email.Contains("@"))
-                {
-                    logger.LogInformation("Пропуск записи заказчика с ID: {CustomerID} из-за некорректного email.", customerRaw.ID);
-                    errors.Add($"Пропуск записи заказчика с ID: {customerRaw.ID} из-за некорректного email.");
-                    continue;
-                }
-
-                if (DateTime.TryParse(customerRaw.CreatedAt, out _) is false)
-                {
-                    logger.LogInformation("Пропуск записи заказчика с ID: {CustomerID} из-за некорректной даты создания.", customerRaw.ID);
-                    errors.Add($"Пропуск записи заказчика с ID: {customerRaw.ID} из-за некорректной даты создания.");
-                    continue;
-                }
-
-                if (customerRaw?.Gender != "муж" && customerRaw?.Gender != "жен")
-                {
-                    logger.LogInformation("Пропуск записи заказчика с ID: {CustomerID} из-за некорректного значения пола.", customerRaw!.ID);
-                    errors.Add($"Пропуск записи заказчика с ID: {customerRaw.ID} из-за некорректного значения пола.");
-                    continue;
-                }
-
-                totalPassed++;
-                validCustomersRaw.Add(customerRaw);
-            }
+            (int totalRecords, int totalPassed, List<string> errors, List<ETLCustomerDTO> validCustomersRaw) = await ValidateETL(customersRawData);
 
             // Начинаем преобразование данных
-            List<Customer> customers = [];
-            foreach (var validCustomerRaw in validCustomersRaw)
-            {
-                int id = int.Parse(validCustomerRaw.ID!);
-                string fullName = validCustomerRaw.FullName!;
-                string phone = validCustomerRaw.Phone!;
-                string email = validCustomerRaw.Email!;
-                DateTime createdAt = DateTime.Parse(validCustomerRaw.CreatedAt!);
-                createdAt = DateTime.SpecifyKind(createdAt, DateTimeKind.Utc);
-                bool gender = validCustomerRaw.Gender == "муж";
-                customers.Add(new Customer
-                {
-                    ID = id,
-                    FullName = fullName,
-                    Phone = phone,
-                    Email = email,
-                    CreatedAt = createdAt,
-                    Gender = gender
-                });
-            }
+            List<Customer> customers = TransformETL(validCustomersRaw);
 
             // Начинаем обработку данных, сохраняем в БД и сохраняем логи
+            await LoadETL(totalRecords, totalPassed, errors, customers);
+        }
+
+        private async Task LoadETL(int totalRecords, int totalPassed, List<string> errors, List<Customer> customers)
+        {
             int totalInserted = 0;
             foreach (var customer in customers)
             {
@@ -145,6 +71,99 @@ namespace GoodFish.BLL.Services.Internal
             string logPath = Path.Combine(logDir, logFileName);
             string json = JsonSerializer.Serialize(processingLog);
             await File.WriteAllTextAsync(logPath, json, encoding: Encoding.UTF8);
+        }
+
+        private static List<Customer> TransformETL(List<ETLCustomerDTO> validCustomersRaw)
+        {
+            List<Customer> customers = [];
+            foreach (var validCustomerRaw in validCustomersRaw)
+            {
+                int id = int.Parse(validCustomerRaw.ID!.Trim());
+                string fullName = validCustomerRaw.FullName!.Trim();
+                string phone = validCustomerRaw.Phone!.Trim();
+                string email = validCustomerRaw.Email!.Trim();
+                DateTime createdAt = DateTime.Parse(validCustomerRaw.CreatedAt!.Trim());
+                createdAt = DateTime.SpecifyKind(createdAt, DateTimeKind.Utc);
+                bool gender = validCustomerRaw.Gender!.Trim() == "муж";
+                customers.Add(new Customer
+                {
+                    ID = id,
+                    FullName = fullName,
+                    Phone = phone,
+                    Email = email,
+                    CreatedAt = createdAt,
+                    Gender = gender
+                });
+            }
+
+            return customers;
+        }
+
+        private async Task<(int totalRecords, int totalPassed, List<string> errors, List<ETLCustomerDTO> validCustomersRaw)> ValidateETL(List<ETLCustomerDTO> customersRawData)
+        {
+            int totalRecords = customersRawData.Count;
+            int totalPassed = 0;
+            List<string> errors = [];
+            List<ETLCustomerDTO> validCustomersRaw = [];
+            foreach (var customerRaw in customersRawData)
+            {
+                // Пропускаем некорректные записи
+                if (string.IsNullOrWhiteSpace(customerRaw.ID))
+                {
+                    logger.LogInformation("Пропуск некорректной записи заказчика с пустым ID");
+                    errors.Add($"Пропуск некорректной записи заказчика с пустым ID");
+                    continue;
+                }
+
+                if (long.TryParse(customerRaw.ID, out _) is false)
+                {
+                    logger.LogInformation("Пропуск записи заказчика с некорректным ID: {CustomerID}", customerRaw.ID);
+                    errors.Add($"Пропуск записи заказчика с некорректным ID: {customerRaw.ID}");
+                    continue;
+                }
+
+                // Проверяем, есть ли уже такой заказчик в БД
+                var existingCustomer = await customerRepository.GetByIdAsync(long.Parse(customerRaw.ID), CancellationToken.None);
+                if (existingCustomer != null)
+                {
+                    logger.LogInformation("Заказчик с ID: {CustomerID} уже существует. Пропуск.", customerRaw.ID);
+                    errors.Add($"Заказчик с ID: {customerRaw.ID} уже существует. Пропуск.");
+                    continue;
+                }
+
+                if (string.IsNullOrEmpty(customerRaw.FullName) || string.IsNullOrEmpty(customerRaw.Email) || string.IsNullOrEmpty(customerRaw.Gender))
+                {
+                    logger.LogInformation("Пропуск записи заказчика с ID: {CustomerID} из-за отсутствия обязательных полей.", customerRaw.ID);
+                    errors.Add($"Пропуск записи заказчика с ID: {customerRaw.ID} из-за отсутствия обязательных полей.");
+                    continue;
+                }
+
+                if (customerRaw.Email == null || !customerRaw.Email.Contains("@"))
+                {
+                    logger.LogInformation("Пропуск записи заказчика с ID: {CustomerID} из-за некорректного email.", customerRaw.ID);
+                    errors.Add($"Пропуск записи заказчика с ID: {customerRaw.ID} из-за некорректного email.");
+                    continue;
+                }
+
+                if (DateTime.TryParse(customerRaw.CreatedAt, out _) is false)
+                {
+                    logger.LogInformation("Пропуск записи заказчика с ID: {CustomerID} из-за некорректной даты создания.", customerRaw.ID);
+                    errors.Add($"Пропуск записи заказчика с ID: {customerRaw.ID} из-за некорректной даты создания.");
+                    continue;
+                }
+
+                if (customerRaw?.Gender.Trim() != "муж" && customerRaw?.Gender.Trim() != "жен")
+                {
+                    logger.LogInformation("Пропуск записи заказчика с ID: {CustomerID} из-за некорректного значения пола.", customerRaw!.ID);
+                    errors.Add($"Пропуск записи заказчика с ID: {customerRaw.ID} из-за некорректного значения пола.");
+                    continue;
+                }
+
+                totalPassed++;
+                validCustomersRaw.Add(customerRaw);
+            }
+
+            return (totalRecords, totalPassed, errors, validCustomersRaw);
         }
 
         private async Task<List<ETLCustomerDTO>> ExtractCustomersAsync(IFormFile file)
